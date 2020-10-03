@@ -1,0 +1,8 @@
+figures
+data
+*.pdf
+*.png
+*.csv
+*.tsv
+*.shared
+*.taxonomy

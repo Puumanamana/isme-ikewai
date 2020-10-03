@@ -1,0 +1,17 @@
+name: isme-analysis
+channels:
+  - defaults
+  - conda-forge
+  - bioconda
+  - r
+dependencies:
+  - python >=3.6
+  - pandas >=1
+  - numpy
+  - R =3.6
+  - bioconductor-phyloseq =1.32
+  - r-vegan =2.5
+  - r-ggplot2
+  - r-ggsci
+  - bioconductor-deseq2
+  - r-data.table
