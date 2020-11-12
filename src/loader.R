@@ -5,7 +5,7 @@
 library(phyloseq)
 library(data.table)
 
-##============ txt file loader into phyloseq object ========s====##
+##============ txt file loader into phyloseq object ============##
 
 fast_table_load <- function(filename, threads=1, drop=c(), row.names=1) {
   data <- fread(filename, nThread=threads, drop=drop, header=T, blank.lines.skip=T)
@@ -45,12 +45,12 @@ load_metagenome <- function(abundance_file='../data/abundance.csv',
 
 ##===================== Metagenome filtering =====================##
 
-filter_metagenome <- function(metagenome, min_prevalence=1, taxa=NULL, clade_file=NULL) {
+filter_metagenome <- function(metagenome, min_prevalence=0, taxa=NULL, clade_file=NULL) {
   samples <- sample_names(metagenome)
   otus <- taxa_names(metagenome)
   
   prevalence <- colSums(otu_table(metagenome) > 0)
-  otus_to_keep <- otus[prevalence>min_prevalence]
+  otus_to_keep <- otus[prevalence >= min_prevalence]
   
   if (!is.null(clade_file)) {
     geni <- read.table(clade_file, header=TRUE)$Genus
