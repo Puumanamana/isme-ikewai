@@ -2,16 +2,19 @@ source('loader.R')
 source('util.R')
 library(cowplot)
 
-factors <- c('site_id', 'eruption')
+factors <- c('Site_id', 'Eruption')
 multilevel <- TRUE
+mode <- 'single'
 rank <- 'Genus'
 
 ##======================================##
 ##---------- Load metagenome -----------##
 ##======================================##
 
-metagenome <- load_metagenome()
-metagenome <- subset_samples(metagenome, PCA_Chem_Group %in% c('C', 'D'))
+metagenome <- load_metagenome(abundance_file=sprintf('../data/%s/abundance.csv',  mode),
+                              metadata_file=sprintf('../data/%s/metadata.csv', mode))
+metagenome <- subset_samples(metagenome, Site_id %in% 5:20)
+# metagenome <- subset_samples(metagenome, PCA_Grp %in% c('C', 'D'))
 metagenome <- speedyseq::tax_glom(metagenome, rank)
 
 # Combine hue_cols for multilevel plot
@@ -39,8 +42,13 @@ merge_and_format_samples <- function(mg, f) {
 
 data_all <- list()
 
-for (clade in names(clade_files)) {
-  metagenome_clade <- filter_metagenome(metagenome, clade_file=clade_files[clade])
+for (clade in names(io)[2:3]) {
+  if (is.na(clade)) {
+    clade <- 'all'
+    metagenome_clade <- metagenome
+  } else {
+    metagenome_clade <- filter_metagenome(metagenome, clade_file=io[clade])
+  }
 
   # Aggregate, normalize and melt data for each factor
   hues <- factors
@@ -73,12 +81,12 @@ for (clade in names(clade_files)) {
 }
 
 
-##======================================##
+##===================================##
 ##------ Custom stacked barplot -----##
-##======================================##
+##===================================##
 
 plots <- list()
-for (clade in names(clade_files)) {
+for (clade in names(io)[2:3]) {
   data <- data_all[[clade]]
   data <- data[data$Abundance > 0,]
   
@@ -86,7 +94,7 @@ for (clade in names(clade_files)) {
   if (ntaxa < 52) {
     palette <- pal_igv()(ntaxa)
   } else {
-    palette <- rep(pal_igv()(51), 1+int(ntaxa/51))[1:ntaxa]
+    palette <- rep(pal_igv()(51), 1+floor(ntaxa/51))[1:ntaxa]
   }
 
   if (multilevel) {
@@ -97,7 +105,7 @@ for (clade in names(clade_files)) {
       scale_fill_manual(values=palette) +
       ylab('Proportion') + xlab('') +
       guides(fill=guide_legend(title=sprintf("%s for %s", rank, clade), reverse=TRUE)) + 
-      facet_wrap(eruption ~ .)
+      facet_wrap(Eruption ~ .)
       
     
   } else {
@@ -129,6 +137,5 @@ if(multilevel){
   ggsave(sprintf("%s/Figure-S4 taxa-barplot.pdf", io['figures']), plot, height=11, width=17)
 } else{
   ggsave(sprintf("%s/Figure-7 taxa-barplot.pdf", io['figures']), plot, height=11, width=17)
-  
 }
 

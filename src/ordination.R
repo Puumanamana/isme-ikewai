@@ -1,8 +1,7 @@
 source('loader.R')
 source('util.R')
 library(vegan)
-
-subsampling_level <- 5000
+library(cowplot)
 
 ##======================================##
 ##---------- Plotting function ---------##
@@ -22,7 +21,7 @@ plot_sample_distr <- function(sizes, output=NULL, bins=30, cutoff=6000) {
 }
 
 plot_components <- function(data=NULL, x=NULL, y=NULL, hue=NULL, arrows=NULL, col=NULL, label=NULL,
-                            title="", size=2, cex=5) {
+                            title="", size=2, cex=5, alpha=0.8) {
   
   p <- ggplot(data) +
     gginit() + 
@@ -35,7 +34,7 @@ plot_components <- function(data=NULL, x=NULL, y=NULL, hue=NULL, arrows=NULL, co
   if (!is.null(label)) {
     p <- p + geom_text(aes_string(x=x, y=y, color=hue, label=label), size=size, fontface = "bold")
   } else {
-    p <- p + geom_point(aes_string(x=x, y=y, color=hue), shape=19, size=size, alpha=0.8)
+    p <- p + geom_point(aes_string(x=x, y=y, color=hue), shape=19, size=size, alpha=alpha)
   }
   
   # Overlay arrows
@@ -58,82 +57,138 @@ plot_components <- function(data=NULL, x=NULL, y=NULL, hue=NULL, arrows=NULL, co
   
 }
 
+##==================##
+##--- Parameters ---##
+##==================##
+
+mode <- 'single'
+subsampling_level <- c(merged=8000, single=3000)
+seed <- 123
+set.seed(seed)
+
 ##======================================##
 ##--- Load and preprocess metagenome ---##
 ##======================================##
 
-metagenome <- load_metagenome()
-metagenome <- filter_metagenome(metagenome, min_prevalence=2)
+metagenome <- load_metagenome(abundance_file=sprintf('../data/%s/abundance.csv',  mode),
+                              metadata_file=sprintf('../data/%s/metadata.csv', mode))
+# metadata <- sample_data(metagenome)
+# sample_data(metagenome) <- metadata
+metagenome <- subset_samples(metagenome, Site_id %in% 5:20)
 
 # Plot sample distribution for subsampling
-plot_sample_distr(sample_sums(metagenome), cutoff=subsampling_level)
+plot_sample_distr(sample_sums(metagenome), cutoff=subsampling_level[mode])
 ggsave(sprintf("%s/sample_sizes.pdf", io['figures']), width=8, height=5)
 
-# Subsampling
-metagenome <- rarefy_even_depth(metagenome, subsampling_level, replace=FALSE, rngseed=42)
+metagenome_filt <- filter_prevalence(metagenome, min_prevalence=2)
+metagenome_subsampled <- rarefy_even_depth(metagenome_filt, subsampling_level[mode], replace=FALSE, rngseed=seed)
+metagenome_relabund <- transform_sample_counts(metagenome_subsampled, function(x) sqrt(x / sum(x)))
 
+# Subsampling
 metadata <- as(sample_data(metagenome), 'data.frame')
-hue_names <- c('PCA_Chem_Group', 'eruption')
 
 ##======================================##
 ##----------- CCA analysis -------------##
 ##======================================##
 
-# Relative abundance
-metagenome_relabund <- transform_sample_counts(metagenome, function(x) sqrt(x / sum(x)))
-
 cca_model <- ordinate(metagenome_relabund, method='CCA', formula= ~ DO + pH + SPC + SO4 + NOx)
 
 cca_components <- as.data.frame(scores(cca_model, display='sites'))
-cca_components[, c(hue_names, 'site_id')] = metadata[, c(hue_names, 'site_id')]
+cca_components[, colnames(metadata)] = metadata[rownames(cca_components),]
 
 cca_arrows <- as.data.frame(scores(cca_model, display="bp", scaling="species"))
 
-for (hue_name in hue_names) {
-  plot_components(data=cca_components, arrows=cca_arrows,
-                  x='CCA1', y='CCA2', hue=hue_name,
-                  label='site_id', size=7, cex=8) +
-  scale_color_manual(values=colors[[hue_name]]) +
-  
-  if (hue_name == 'eruption') {
-    ggsave(sprintf("%s/Figure-5 CCA-%s.pdf", io['figures'], hue_name), scale=2)
-  } else {
-    ggsave(sprintf("%s/Figure-S3 CCA-%s.pdf", io['figures'], hue_name), scale=2)
-  }
-}
+plot_components(data=cca_components, arrows=cca_arrows, x='CCA1', y='CCA2', 
+                hue='Eruption', label='Site_id', size=5, cex=8) +
+    scale_color_manual(values=colors[['Eruption']])
+ggsave(sprintf("%s/Figure-5 CCA-eruption.pdf", io['figures']), scale=2)
+
+plot_components(data=cca_components, arrows=cca_arrows, x='CCA1', y='CCA2', 
+                hue='group', label='Site_id', size=7, cex=8)
+ggsave(sprintf("%s/Figure-S3 CCA-groups.pdf", io['figures']), scale=2)
+
+# plot_components(data=cca_components, arrows=cca_arrows, x='CCA1', y='CCA2', 
+#                 hue='PCA_Grp', label='Site_id', size=7, cex=8) +
+#   scale_color_manual(values=colors[['PCA_Grp']])
+# ggsave(sprintf("%s/Figure-S3 CCA-PCA_Grp.pdf", io['figures']), scale=2)
 
 ##======================================##
 ##----------- NMDS analysis ------------##
 ##======================================##
 
-method <- 'PCoA'
-
-for (clade in names(clade_files)) {
-  metagenome_clade <- filter_metagenome(metagenome, clade_file=clade_files[clade])
-  metagenome_clade_relabund <- transform_sample_counts(metagenome_clade, function(x) sqrt(x / sum(x)))
-  
-  model <- ordinate(metagenome_clade_relabund, method=method, trymax=500, parallel=4)
+run_ordination <- function(mg, method='NMDS', dist='bray', trymax=500) {
   
   if (method == 'PCoA') {
+    model <- ordinate(mg, method='PCoA', distance=dist)
     components <- as.data.frame(model$vectors[, 1:2])
   } else {
-    components <- as.data.frame(scores(model))
+    if (endsWith(dist, 'unifrac')) {
+      distances <- UniFrac(mg, weighted=dist[1]=='w', normalized=TRUE, 
+                           parallel=FALSE, fast=TRUE)
+      model <- metaMDS(distances, trymax=trymax)
+    } else {
+      model <- ordinate(mg, method='NMDS', distance=dist, trymax=trymax)
+    }
+    components <- as.data.frame(model$points)
   }
-  colnames(components) <- sprintf('%s%s', method, 1:2)
-  components[, hue_names] = metadata[rownames(components), hue_names]
   
-  plot_components(data=components, x=paste0(method, '1'), y=paste0(method, '2'),
-                  hue='PCA_Chem_Group', col='eruption') +
-  scale_color_manual(values=colors$PCA_Chem_Group)
+  meta <- sample_data(mg)[rownames(components),]
+  meta[, sprintf('PC%s', 1:2)] <- components
   
-  for (hue_name in hue_names) {
-    plot_components(data=components, # arrows=nmds_arrows, 
-                    x=paste0(method, '1'), y=paste0(method, '2'), 
-                    hue=hue_name) +
-      
-    scale_color_manual(values=colors[[hue_name]]) +
-    ggsave(sprintf("%s/%s-%s-%s.pdf", io['figures'], method, hue_name, clade))
-  }
+  return(meta)
 }
 
+method <- 'NMDS'
+dist <- 'bray'
 
+components <- run_ordination(metagenome_subsampled, method=method, dist=dist, trymax=500)
+
+# NMDS colored by eruption
+plot_components(data=components, alpha=1, size=3, x='PC1', y='PC2', hue='Eruption') + 
+  stat_ellipse(geom="polygon", aes(x=PC1, y=PC2, fill=Eruption), alpha=0.2, show.legend=FALSE, level=0.9)
+ggsave(sprintf("%s/%s-eruption.pdf", io['figures'], method))
+
+# NMDS colored by Year-Month
+plot_components(data=components, alpha=1, size=3, x='PC1', y='PC2', hue='YM') + 
+  stat_ellipse(geom="polygon", aes(x=PC1, y=PC2, fill=YM), alpha=0.2, show.legend=FALSE, level=0.5)
+ggsave(sprintf("%s/%s-YM.pdf", io['figures'], method))
+
+# NMDS colored by location
+plot_components(data=components, alpha=1, size=5, x='PC1', y='PC2', hue='group', label='Site_id')
+
+plots <- list()
+subsampling <- data.frame(
+  single=c('2017-11'=3000, '2018-03'=10000, '2018-08'=5000, '2018-11'=4000, '2019-03'=7000),
+           # 'PreEruption'=6000, 'PostEruption'=2000),
+  merged=c('2017-11'=3000, '2018-03'=15000, '2018-08'=10000, '2018-11'=10000, '2019-03'=12000)
+           # 'PreEruption'=12000, 'PostEruption'=12000)
+)
+
+for (ym in rownames(subsampling)) {
+  # ym <- rownames(subsampling)[5]
+  mg_sub <- subset_samples(metagenome, YM==ym)
+  # mg_sub <- subset_samples(mg_sub, group != '16-20')
+  summary <- data.frame(
+    site=metadata[sample_names(mg_sub),'Site_id'], 
+    size=sample_sums(mg_sub)
+  )
+  summary <- summary[order(summary$size),]
+  plot_sample_distr(summary$size, cutoff=subsampling[ym, mode], bins=20)
+  
+  mg_sub <- rarefy_even_depth(mg_sub, subsampling[ym, mode], replace=FALSE, rngseed=seed)
+  # mg_sub <- transform_sample_counts(mg_sub, function(x) asin(sqrt(x / sum(x))))
+  components <- run_ordination(mg_sub, method=method, dist=dist)
+  plots[[ym]] <- plot_components(data=components, x='PC1', y='PC2', hue='group', label='Site_id', size=5)
+}
+
+combined_plot <- plot_grid(
+    plots[['2017-11']] + theme(legend.position="none") + labs(title='2017-11'), 
+    plots[['2018-03']] + theme(legend.position="none") + labs(title='2018-03'),
+    plots[['2018-08']] + theme(legend.position="none") + labs(title='2018-08'),
+    plots[['2018-11']] + theme(legend.position="none") + labs(title='2018-11'),
+    plots[['2019-03']] + labs(title='2019-03'),
+    ncol=3, align = "hv", rel_widths = c(8,8)
+)
+combined_plot
+ggsave(sprintf("%s/NMDS-group-by-YM.pdf", io['figures']), combined_plot, height=11, width=17)
+  

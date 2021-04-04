@@ -1,14 +1,16 @@
 source('loader.R')
 source('util.R')
 
-hue_cols <- c('PCA_Chem_Group', 'eruption')
+mode <- 'single'
+hue_cols <- c('group', 'Eruption')
 
 ##======================================##
 ##--- Load and preprocess metagenome ---##
 ##======================================##
 
-metagenome <- load_metagenome()
-metagenome <- filter_metagenome(metagenome, min_prevalence=2)
+metagenome <- load_metagenome(abundance_file=sprintf('../data/%s/abundance.csv',  mode),
+                              metadata_file=sprintf('../data/%s/metadata.csv', mode))
+metagenome <- filter_prevalence(metagenome, min_prevalence=2)
 
 ##======================================##
 ##----------- Compute metrics ----------##
@@ -32,7 +34,7 @@ data <- data_all[, c(hue_cols, metrics[metrics != 'Observed'])] %>%
 
 data$metric <- as.factor(data$metric)
 data$factor <- as.factor(data$factor)
-data$level <- factor(data$level, levels=levels(unlist(list(data_all[hue_cols]))))
+data$level <- factor(data$level, unlist(sapply(data_all[, hue_cols], levels)))
 
 label_levels <- sprintf(
   "%s\n(%s)", 
@@ -40,7 +42,7 @@ label_levels <- sprintf(
   rep(levels(data$factor), each=nlevels(data$metric))
 )
 
-data$labels <- factor(sprintf("%s\n(%s)", data$metric, data$factor), levels=label_levels)
+# data$labels <- factor(sprintf("%s\n(%s)", data$metric, data$factor), levels=label_levels)
 
 ##======================================##
 ##------------ Plot and save -----------##
@@ -50,21 +52,21 @@ diversity_plot <- function(data=NULL, x=NULL, y=NULL, ncol=4) {
   p <- ggplot(data=data, aes_string(x=x[1], y=y, fill=x[length(x)])) +
     gginit() +
     geom_boxplot() +
-    facet_wrap(~ labels, scales='free', ncol=ncol)
+    facet_wrap(~ metric, scales='free', ncol=ncol)
   return(p)
 }
 
-diversity_plot(data=data[data$factor=='eruption', ], x='level', y='value', ncol=4) +
+diversity_plot(data=data[data$factor=='Eruption', ], x='level', y='value', ncol=4) +
   guides(fill = FALSE) + xlab('') + ylab('') +
-  scale_fill_manual(values=colors$eruption)
+  scale_fill_manual(values=colors$Eruption)
 ggsave(sprintf("%s/Figure-6 boxplot-alpha_diversity-eruption.pdf", io['figures']), width=12)
 
-diversity_plot(data=data[data$factor=='PCA_Chem_Group', ], x='level', y='value', ncol=4) +
+diversity_plot(data=data[data$factor=='group', ], x='level', y='value', ncol=4) +
   guides(fill = FALSE) + xlab('') + ylab('') +
-  scale_fill_manual(values=colors$PCA_Chem_Group)
-ggsave(sprintf("%s/Figure-Sx boxplot-alpha_diversity-PCA_Chem_Group.pdf", io['figures']), width=12)
+  scale_fill_manual(values=colors$group)
+ggsave(sprintf("%s/Figure-Sx boxplot-alpha_diversity-group.pdf", io['figures']), width=12)
 
-# diversity_plot(data, x=c('eruption', 'PCA_Chem_Group'), y=metrics) +
+# diversity_plot(data, x=c('Eruption', 'PCA_Grp'), y=metrics) +
 #   xlab('') +
 #   theme(axis.text.x=element_text(angle=90, vjust=0.5)) +
-#   ggsave(sprintf("%s/boxplot-alpha_diversity-per-eruption-PCA_Chem_Group.pdf", io['figures']))
+#   ggsave(sprintf("%s/boxplot-alpha_diversity-per-eruption-PCA_Grp.pdf", io['figures']))

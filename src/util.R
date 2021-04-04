@@ -10,13 +10,13 @@ io <- c(
   dsrB='../data/functional-clades/dsrB_genuses.tsv'
 )
 
-PCA_colors <- c(A='red', B='blue', C='green', D='purple')
+group_colors <- c('01'='yellow', '02-04'='blue', '05-09'='green', '10-15'='purple', '16-20'='red')
 eruption_colors <- c('salmon', 'darkcyan')
-names(eruption_colors) <- c('pre-eruption', 'post-eruption')
+names(eruption_colors) <- c('PreEruption', 'PostEruption')
 
 colors <- list(
-  PCA_Chem_Group=PCA_colors,
-  eruption=eruption_colors
+  group=group_colors,
+  Eruption=eruption_colors
 )
 
 gginit <- function() {
